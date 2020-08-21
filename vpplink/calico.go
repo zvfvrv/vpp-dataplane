@@ -20,7 +20,7 @@ import (
 	"net"
 
 	"github.com/pkg/errors"
-	"github.com/projectcalico/vpp-dataplane/vpplink/binapi/20.09-rc0~303-g7aeaa83db/calico"
+	"github.com/projectcalico/vpp-dataplane/vpplink/binapi/20.09-rc0~304-gb66b66d74/calico"
 	"github.com/projectcalico/vpp-dataplane/vpplink/types"
 )
 
@@ -36,16 +36,16 @@ func (v *VppLink) CalicoTranslateAdd(tr *types.CalicoTranslateEntry) (id uint32,
 	paths := make([]calico.CalicoEndpointTuple, 0, len(tr.Backends))
 	for _, backend := range tr.Backends {
 		paths = append(paths, calico.CalicoEndpointTuple{
-			SrcEp: types.ToCalicoEndpoint(backend.SrcEndpoint),
-			DstEp: types.ToCalicoEndpoint(backend.DstEndpoint),
+			SrcEp: types.ToVppCalicoEndpoint(backend.SrcEndpoint),
+			DstEp: types.ToVppCalicoEndpoint(backend.DstEndpoint),
 		})
 	}
 
 	response := &calico.CalicoTranslationUpdateReply{}
 	request := &calico.CalicoTranslationUpdate{
 		Translation: calico.CalicoTranslation{
-			Vip:      types.ToCalicoEndpoint(tr.Endpoint),
-			IPProto:  types.ToCalicoProto(tr.Proto),
+			Vip:      types.ToVppCalicoEndpoint(tr.Endpoint),
+			IPProto:  types.ToVppIPProto(tr.Proto),
 			Paths:    paths,
 			IsRealIP: BoolToU8(tr.IsRealIP),
 		},
@@ -79,8 +79,8 @@ func (v *VppLink) CalicoSetSnatAddresses(v4, v6 net.IP) (err error) {
 	defer v.lock.Unlock()
 
 	request := &calico.CalicoSetSnatAddresses{
-		SnatIP4: types.ToVppCalicoIp4Address(v4),
-		SnatIP6: types.ToVppCalicoIp6Address(v6),
+		SnatIP4: types.ToVppIP4Address(v4),
+		SnatIP6: types.ToVppIP6Address(v6),
 	}
 	response := &calico.CalicoSetSnatAddressesReply{}
 	err = v.ch.SendRequest(request).ReceiveReply(response)
@@ -98,7 +98,7 @@ func (v *VppLink) CalicoAddDelSnatPrefix(prefix *net.IPNet, isAdd bool) (err err
 
 	request := &calico.CalicoAddDelSnatPrefix{
 		IsAdd:  BoolToU8(isAdd),
-		Prefix: types.ToVppCalicoPrefix(prefix),
+		Prefix: types.ToVppPrefix(prefix),
 	}
 	response := &calico.CalicoAddDelSnatPrefixReply{}
 	err = v.ch.SendRequest(request).ReceiveReply(response)
