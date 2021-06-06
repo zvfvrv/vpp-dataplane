@@ -69,6 +69,12 @@ func (w *PrefixWatcher) WatchPrefix() error {
 					return errors.Wrap(err, "error making new path for assigned prefix")
 				}
 				toAdd = append(toAdd, path)
+				pathSrv6, err := common.MakePathSRv6(prefix, false /* isWithdrawal */, w.Ipv4, w.Ipv6)
+				if err != nil {
+					return errors.Wrap(err, "error making new MakePathSRv6 for assigned prefix")
+				}
+				w.log.Infof("New pathSrv6: %s", pathSrv6)
+				toAdd = append(toAdd, pathSrv6)
 			}
 		}
 		if err = w.updateBGPPaths(toAdd); err != nil {
@@ -156,89 +162,116 @@ func (w *PrefixWatcher) updateBGPPaths(paths []*bgpapi.Path) error {
 //      add "192.168.1.0/26..32" to 'host'       set
 //
 func (w *PrefixWatcher) updateOneBGPPath(path *bgpapi.Path) error {
-	ipAddrPrefixNlri := &bgpapi.IPAddressPrefix{}
-	err := ptypes.UnmarshalAny(path.Nlri, ipAddrPrefixNlri)
-	if err != nil {
-		return fmt.Errorf("Cannot handle Nlri: %+v", path.Nlri)
-	}
-	prefixLen := ipAddrPrefixNlri.PrefixLen
-	prefixAddr := ipAddrPrefixNlri.Prefix
-	isv6 := strings.Contains(prefixAddr, ":")
-	del := path.IsWithdraw
-	prefix := prefixAddr + "/" + strconv.FormatUint(uint64(prefixLen), 10)
-	w.log.Infof("Updating local prefix set with %s", prefix)
-	// Add path to aggregated prefix set, allowing to export it
-	ps := &bgpapi.DefinedSet{
-		DefinedType: bgpapi.DefinedType_PREFIX,
-		Name:        common.GetAggPrefixSetName(isv6),
-		Prefixes: []*bgpapi.Prefix{
-			&bgpapi.Prefix{
-				IpPrefix:      prefix,
-				MaskLengthMin: prefixLen,
-				MaskLengthMax: prefixLen,
-			},
-		},
-	}
-	if del {
-		err = w.BGPServer.DeleteDefinedSet(
-			context.Background(),
-			&bgpapi.DeleteDefinedSetRequest{DefinedSet: ps, All: false},
-		)
-	} else {
-		err = w.BGPServer.AddDefinedSet(
-			context.Background(),
-			&bgpapi.AddDefinedSetRequest{DefinedSet: ps},
-		)
-	}
-	if err != nil {
-		return errors.Wrapf(err, "error adding / deleting defined set %+v", ps)
-	}
-	// Add all contained prefixes to host prefix set, forbidding the export of containers /32s or /128s
-	max := uint32(32)
-	if isv6 {
-		w.log.Debugf("Address %s detected as v6", prefixAddr)
-		max = 128
-	}
-	ps = &bgpapi.DefinedSet{
-		DefinedType: bgpapi.DefinedType_PREFIX,
-		Name:        common.GetHostPrefixSetName(isv6),
-		Prefixes: []*bgpapi.Prefix{
-			&bgpapi.Prefix{
-				IpPrefix:      prefix,
-				MaskLengthMax: max,
-				MaskLengthMin: prefixLen,
-			},
-		},
-	}
-	if del {
-		err = w.BGPServer.DeleteDefinedSet(
-			context.Background(),
-			&bgpapi.DeleteDefinedSetRequest{DefinedSet: ps, All: false},
-		)
-	} else {
-		err = w.BGPServer.AddDefinedSet(
-			context.Background(),
-			&bgpapi.AddDefinedSetRequest{DefinedSet: ps},
-		)
-	}
-	if err != nil {
-		return errors.Wrapf(err, "error adding / deleting defined set %+v", ps)
-	}
+	w.log.Infof("updateOneBGPPath path: %s", path.String())
 
-	// Finally add/remove path to/from the main table to annouce it to our peers
-	if del {
-		err = w.BGPServer.DeletePath(context.Background(), &bgpapi.DeletePathRequest{
-			TableType: bgpapi.TableType_GLOBAL,
-			Path:      path,
-		})
-	} else {
-		_, err = w.BGPServer.AddPath(context.Background(), &bgpapi.AddPathRequest{
-			TableType: bgpapi.TableType_GLOBAL,
-			Path:      path,
-		})
-	}
+	pathFamily := path.GetFamily()
+	if pathFamily.Safi == bgpapi.Family_SAFI_SR_POLICY {
+		policySRv6Nlri := &bgpapi.SRPolicyNLRI{}
+		err_srv6Nlri := ptypes.UnmarshalAny(path.Nlri, policySRv6Nlri)
+		if err_srv6Nlri != nil {
+			return fmt.Errorf("Cannot handle SRPolicyNLRI: %+v", path.Nlri)
+		}
+		del := path.IsWithdraw
+		var err error
+		// Finally add/remove path to/from the main table to annouce it to our peers
+		if del {
+			err = w.BGPServer.DeletePath(context.Background(), &bgpapi.DeletePathRequest{
+				TableType: bgpapi.TableType_GLOBAL,
+				Path:      path,
+			})
+		} else {
+			_, err = w.BGPServer.AddPath(context.Background(), &bgpapi.AddPathRequest{
+				TableType: bgpapi.TableType_GLOBAL,
+				Path:      path,
+			})
+		}
+		return errors.Wrapf(err, "error adding / deleting path %+v", path)
 
-	return errors.Wrapf(err, "error adding / deleting path %+v", path)
+	} else {
+		ipAddrPrefixNlri := &bgpapi.IPAddressPrefix{}
+		err := ptypes.UnmarshalAny(path.Nlri, ipAddrPrefixNlri)
+		if err != nil {
+			return fmt.Errorf("Cannot handle Nlri: %+v", path.Nlri)
+		}
+		prefixLen := ipAddrPrefixNlri.PrefixLen
+		prefixAddr := ipAddrPrefixNlri.Prefix
+		isv6 := strings.Contains(prefixAddr, ":")
+		del := path.IsWithdraw
+		prefix := prefixAddr + "/" + strconv.FormatUint(uint64(prefixLen), 10)
+		w.log.Infof("Updating local prefix set with %s", prefix)
+		// Add path to aggregated prefix set, allowing to export it
+		ps := &bgpapi.DefinedSet{
+			DefinedType: bgpapi.DefinedType_PREFIX,
+			Name:        common.GetAggPrefixSetName(isv6),
+			Prefixes: []*bgpapi.Prefix{
+				&bgpapi.Prefix{
+					IpPrefix:      prefix,
+					MaskLengthMin: prefixLen,
+					MaskLengthMax: prefixLen,
+				},
+			},
+		}
+		if del {
+			err = w.BGPServer.DeleteDefinedSet(
+				context.Background(),
+				&bgpapi.DeleteDefinedSetRequest{DefinedSet: ps, All: false},
+			)
+		} else {
+			err = w.BGPServer.AddDefinedSet(
+				context.Background(),
+				&bgpapi.AddDefinedSetRequest{DefinedSet: ps},
+			)
+		}
+		if err != nil {
+			return errors.Wrapf(err, "error adding / deleting defined set %+v", ps)
+		}
+		// Add all contained prefixes to host prefix set, forbidding the export of containers /32s or /128s
+		max := uint32(32)
+		if isv6 {
+			w.log.Debugf("Address %s detected as v6", prefixAddr)
+			max = 128
+		}
+		ps = &bgpapi.DefinedSet{
+			DefinedType: bgpapi.DefinedType_PREFIX,
+			Name:        common.GetHostPrefixSetName(isv6),
+			Prefixes: []*bgpapi.Prefix{
+				&bgpapi.Prefix{
+					IpPrefix:      prefix,
+					MaskLengthMax: max,
+					MaskLengthMin: prefixLen,
+				},
+			},
+		}
+		if del {
+			err = w.BGPServer.DeleteDefinedSet(
+				context.Background(),
+				&bgpapi.DeleteDefinedSetRequest{DefinedSet: ps, All: false},
+			)
+		} else {
+			err = w.BGPServer.AddDefinedSet(
+				context.Background(),
+				&bgpapi.AddDefinedSetRequest{DefinedSet: ps},
+			)
+		}
+		if err != nil {
+			return errors.Wrapf(err, "error adding / deleting defined set %+v", ps)
+		}
+
+		// Finally add/remove path to/from the main table to annouce it to our peers
+		if del {
+			err = w.BGPServer.DeletePath(context.Background(), &bgpapi.DeletePathRequest{
+				TableType: bgpapi.TableType_GLOBAL,
+				Path:      path,
+			})
+		} else {
+			_, err = w.BGPServer.AddPath(context.Background(), &bgpapi.AddPathRequest{
+				TableType: bgpapi.TableType_GLOBAL,
+				Path:      path,
+			})
+		}
+		return errors.Wrapf(err, "error adding / deleting path %+v", path)
+	}
+	return nil
 }
 
 func NewPrefixWatcher(routingData *common.RoutingData, log *logrus.Entry) *PrefixWatcher {

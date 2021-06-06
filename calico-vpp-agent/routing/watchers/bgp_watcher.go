@@ -23,6 +23,7 @@ import (
 	bgpapi "github.com/osrg/gobgp/api"
 	"github.com/pkg/errors"
 	commonAgent "github.com/projectcalico/vpp-dataplane/calico-vpp-agent/common"
+	"github.com/projectcalico/vpp-dataplane/calico-vpp-agent/config"
 	"github.com/projectcalico/vpp-dataplane/calico-vpp-agent/routing/common"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
@@ -58,6 +59,7 @@ func (w *BGPWatcher) injectRoute(path *bgpapi.Path) error {
 	var dst net.IPNet
 	ipAddrPrefixNlri := &bgpapi.IPAddressPrefix{}
 	otherNodeIP := net.ParseIP(w.getNexthop(path))
+	w.log.Infof("injectRoute New pathSrv6: %s", path)
 	if otherNodeIP == nil {
 		return fmt.Errorf("Cannot determine path nexthop: %+v", path)
 	}
@@ -114,6 +116,7 @@ func (w *BGPWatcher) WatchBGPPath() error {
 					return
 				}
 				w.log.Infof("Got path update from %s as %d", path.SourceId, path.SourceAsn)
+				w.log.Infof("Got path update from %s ", path)
 				if path.NeighborIp == "<nil>" { // Weird GoBGP API behaviour
 					w.log.Debugf("Ignoring internal path")
 					return
@@ -127,11 +130,18 @@ func (w *BGPWatcher) WatchBGPPath() error {
 		return stopFunc, err
 	}
 
-	var stopV4Monitor, stopV6Monitor context.CancelFunc
+	var stopV4Monitor, stopV6Monitor, stopSRv6IP4Monitor, stopSRv6IP6Monitor context.CancelFunc
 	if w.HasV4 {
 		stopV4Monitor, err = startMonitor(&common.BgpFamilyUnicastIPv4)
 		if err != nil {
 			return errors.Wrap(err, "error starting v4 path monitor")
+		}
+		if config.EnableSRv6 {
+			w.log.Infof("startMonitor SRv6IP4")
+			stopSRv6IP4Monitor, err = startMonitor(&common.BgpFamilySRv6IPv4)
+			if err != nil {
+				return errors.Wrap(err, "error starting SRv6IP4 path monitor")
+			}
 		}
 	}
 	if w.HasV6 {
@@ -139,7 +149,15 @@ func (w *BGPWatcher) WatchBGPPath() error {
 		if err != nil {
 			return errors.Wrap(err, "error starting v6 path monitor")
 		}
+		if config.EnableSRv6 {
+			w.log.Infof("startMonitor SRv6IP6")
+			stopSRv6IP6Monitor, err = startMonitor(&common.BgpFamilySRv6IPv6)
+			if err != nil {
+				return errors.Wrap(err, "error starting SRv6IP6 path monitor")
+			}
+		}
 	}
+
 	for family := range w.reloadCh {
 		if w.HasV4 && family == "4" {
 			stopV4Monitor()
@@ -147,11 +165,27 @@ func (w *BGPWatcher) WatchBGPPath() error {
 			if err != nil {
 				return err
 			}
+			if config.EnableSRv6 {
+				stopSRv6IP4Monitor()
+				w.log.Infof("startMonitor SRv6IP4")
+				stopSRv6IP4Monitor, err = startMonitor(&common.BgpFamilySRv6IPv4)
+				if err != nil {
+					return errors.Wrap(err, "error starting SRv6IP4 path monitor")
+				}
+			}
 		} else if w.HasV6 && family == "6" {
 			stopV6Monitor()
 			stopV6Monitor, err = startMonitor(&common.BgpFamilyUnicastIPv6)
 			if err != nil {
 				return err
+			}
+			if config.EnableSRv6 {
+				stopSRv6IP6Monitor()
+				w.log.Infof("startMonitor SRv6IP6")
+				stopSRv6IP6Monitor, err = startMonitor(&common.BgpFamilySRv6IPv6)
+				if err != nil {
+					return errors.Wrap(err, "error starting SRv6IP6 path monitor")
+				}
 			}
 		}
 	}
