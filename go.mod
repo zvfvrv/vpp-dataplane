@@ -29,3 +29,5 @@ require (
 	k8s.io/apimachinery v0.19.6
 	k8s.io/client-go v0.19.6
 )
+
+replace github.com/osrg/gobgp => /home/francesco/gobgp

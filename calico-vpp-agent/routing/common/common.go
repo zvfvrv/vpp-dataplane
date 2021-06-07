@@ -158,7 +158,7 @@ func MakePathSRv6(prefix string, isWithdrawal bool, nodeIpv4 net.IP, nodeIpv6 ne
 	}
 
 	p := ipNet.IP
-	_, masklen_bits := ipNet.Mask.Size()
+	//_, masklen_bits := ipNet.Mask.Size()
 	v4 := true
 	if p.To4() == nil {
 		v4 = false
@@ -172,18 +172,21 @@ func MakePathSRv6(prefix string, isWithdrawal bool, nodeIpv4 net.IP, nodeIpv6 ne
 	//attrs := []*any.Any{originAttr, nh, rt, tun}
 
 	var family *bgpapi.Family
-
+	var lengthSRPolicyNLRI uint32
 	var nodeIP net.IP
 	if v4 {
+		family = &BgpFamilySRv6IPv4
+		lengthSRPolicyNLRI = 96
 		nodeIP = nodeIpv4
 	} else {
+		family = &BgpFamilySRv6IPv6
+		lengthSRPolicyNLRI = 192
 		nodeIP = nodeIpv6
 	}
+
 	nlrisr, err := ptypes.MarshalAny(&bgpapi.SRPolicyNLRI{
-		Length:        uint32(masklen_bits),
-		Distinguisher: 2,
-		Color:         99,
-		Endpoint:      p,
+		Length:   lengthSRPolicyNLRI,
+		Endpoint: nodeIP,
 	})
 
 	if err != nil {
@@ -200,11 +203,12 @@ func MakePathSRv6(prefix string, isWithdrawal bool, nodeIpv4 net.IP, nodeIpv6 ne
 	// Tunnel Encapsulation Type 15 (SR Policy) sub tlvs
 	s := make([]byte, 4)
 	binary.BigEndian.PutUint32(s, 24321)
-	sid, err := ptypes.MarshalAny(&bgpapi.SRBindingSID{
+	sid, err := ptypes.MarshalAny(&bgpapi.SRv6BindingSID{
 		SFlag: true,
 		IFlag: false,
 		Sid:   s,
 	})
+
 	if err != nil {
 		return nil, err
 	}
@@ -214,6 +218,7 @@ func MakePathSRv6(prefix string, isWithdrawal bool, nodeIpv4 net.IP, nodeIpv6 ne
 	if err != nil {
 		return nil, err
 	}
+	// TypeB not implemented
 	segment, err := ptypes.MarshalAny(&bgpapi.SegmentTypeB{
 		Flags: &bgpapi.SegmentFlags{
 			SFlag: true,
@@ -265,11 +270,6 @@ func MakePathSRv6(prefix string, isWithdrawal bool, nodeIpv4 net.IP, nodeIpv6 ne
 		return nil, err
 	}
 	attrs = append(attrs, tun)
-	if v4 {
-		family = &BgpFamilySRv6IPv4
-	} else {
-		family = &BgpFamilySRv6IPv6
-	}
 
 	return &bgpapi.Path{
 		Nlri:      nlrisr,
@@ -278,43 +278,6 @@ func MakePathSRv6(prefix string, isWithdrawal bool, nodeIpv4 net.IP, nodeIpv6 ne
 		SourceAsn: 64512,
 		Family:    family,
 	}, nil
-
-	/*
-		if v4 {
-			family = &BgpFamilyUnicastIPv4
-			nhAttr, err := ptypes.MarshalAny(&bgpapi.NextHopAttribute{
-				NextHop: nodeIpv4.String(),
-			})
-			if err != nil {
-				return nil, err
-			}
-			attrs = append(attrs, nhAttr)
-		} else {
-			family = &BgpFamilyUnicastIPv6
-			nlriAttr, err := ptypes.MarshalAny(&bgpapi.MpReachNLRIAttribute{
-				NextHops: []string{nodeIpv6.String()},
-				Nlris:    []*any.Any{nlri},
-				Family: &bgpapi.Family{
-					Afi:  bgpapi.Family_AFI_IP6,
-					Safi: bgpapi.Family_SAFI_UNICAST,
-				},
-			})
-			if err != nil {
-				return nil, err
-			}
-			attrs = append(attrs, nlriAttr)
-		}*/
-	/*
-		&bgpapi.Path{
-			Nlri:      nlrisr,
-			IsWithdraw: isWithdrawal,
-			Pattrs:    attrs,
-			Age:        ptypes.TimestampNow(),
-			Family:    &api.Family{Afi: api.Family_AFI_IP, Safi: api.Family_SAFI_SR_POLICY},
-			Best:      true,
-			SourceAsn: 65000,
-		}
-	*/
 
 }
 
