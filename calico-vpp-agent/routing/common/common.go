@@ -223,7 +223,6 @@ func MakePathSRv6(prefix string, isWithdrawal bool, nodeIpv4 net.IP, nodeIpv6 ne
 		Flags: &bgpapi.SegmentFlags{
 			SFlag: true,
 		},
-		Label: 10203,
 	})
 	if err != nil {
 		return nil, err

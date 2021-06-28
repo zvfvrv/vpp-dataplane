@@ -61,6 +61,7 @@ const (
 	EnableSRv6EnvVar           = "CALICOVPP_SRV6_ENABLED"
 
 	DefaultVXLANVni      = 4096
+	DefaultVXLANPort     = 4789
 	DefaultWireguardPort = 51820
 
 	defaultRxMode = types.Adaptative
