@@ -17,7 +17,6 @@
 package common
 
 import (
-	"encoding/binary"
 	"fmt"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/any"
@@ -169,7 +168,6 @@ func MakePathSRv6(prefix string, isWithdrawal bool, nodeIpv4 net.IP, nodeIpv6 ne
 		return nil, err
 	}
 	attrs := []*any.Any{originAttr}
-	//attrs := []*any.Any{originAttr, nh, rt, tun}
 
 	var family *bgpapi.Family
 	var lengthSRPolicyNLRI uint32
@@ -200,13 +198,10 @@ func MakePathSRv6(prefix string, isWithdrawal bool, nodeIpv4 net.IP, nodeIpv6 ne
 	}
 	attrs = append(attrs, nhAttr)
 
-	// Tunnel Encapsulation Type 15 (SR Policy) sub tlvs
-	s := make([]byte, 4)
-	binary.BigEndian.PutUint32(s, 24321)
 	sid, err := ptypes.MarshalAny(&bgpapi.SRv6BindingSID{
 		SFlag: true,
 		IFlag: false,
-		Sid:   s,
+		Sid:   net.ParseIP("2001:1::1").To16(),
 	})
 
 	if err != nil {
@@ -218,10 +213,12 @@ func MakePathSRv6(prefix string, isWithdrawal bool, nodeIpv4 net.IP, nodeIpv6 ne
 	if err != nil {
 		return nil, err
 	}
-	// TypeB not implemented
+
 	segment, err := ptypes.MarshalAny(&bgpapi.SegmentTypeB{
-		Flags: &bgpapi.SegmentFlags{
-			SFlag: true,
+		Flags: &bgpapi.SegmentFlags{SFlag: true},
+		Sid:   net.ParseIP("2001:1::11").To16(),
+		EndpointBehaviorStructure: &bgpapi.SRv6EndPointBehavior{
+			Behavior: 39,
 		},
 	})
 	if err != nil {
@@ -244,12 +241,7 @@ func MakePathSRv6(prefix string, isWithdrawal bool, nodeIpv4 net.IP, nodeIpv6 ne
 	if err != nil {
 		return nil, err
 	}
-	cpn, err := ptypes.MarshalAny(&bgpapi.TunnelEncapSubTLVSRCandidatePathName{
-		CandidatePathName: "CandidatePathName",
-	})
-	if err != nil {
-		return nil, err
-	}
+
 	pri, err := ptypes.MarshalAny(&bgpapi.TunnelEncapSubTLVSRPriority{
 		Priority: 10,
 	})
@@ -261,7 +253,7 @@ func MakePathSRv6(prefix string, isWithdrawal bool, nodeIpv4 net.IP, nodeIpv6 ne
 		Tlvs: []*bgpapi.TunnelEncapTLV{
 			{
 				Type: 15,
-				Tlvs: []*anypb.Any{bsid, seglist, pref, cpn, pri},
+				Tlvs: []*anypb.Any{bsid, seglist, pref, pri},
 			},
 		},
 	})

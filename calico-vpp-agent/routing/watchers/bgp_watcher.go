@@ -53,13 +53,46 @@ func (w *BGPWatcher) getNexthop(path *bgpapi.Path) string {
 	return ""
 }
 
+func (w *BGPWatcher) getSegList(path *bgpapi.Path) string {
+	w.log.Infof("getSegList -----")
+	for _, attr := range path.Pattrs {
+		w.log.Infof("getSegList %s", attr)
+		tun := &bgpapi.TunnelEncapAttribute{}
+		if err := ptypes.UnmarshalAny(attr, tun); err == nil {
+			for _, tlv := range tun.Tlvs {
+				for _, innerTlv := range tlv.Tlvs {
+					segList := &bgpapi.TunnelEncapSubTLVSRSegmentList{}
+					if err := ptypes.UnmarshalAny(innerTlv, segList); err == nil {
+						w.log.Infof("getSegList %s", segList.Segments)
+
+						for _, seglist := range segList.Segments {
+							segment := &bgpapi.SegmentTypeB{}
+							if err = ptypes.UnmarshalAny(seglist, segment); err == nil {
+								w.log.Infof("segment behaviour %s", segment.GetEndpointBehaviorStructure().String())
+								ip6 := net.IP(segment.GetSid())
+								w.log.Infof("segment ip: %s", ip6.String())
+							}
+						}
+						return ""
+					}
+				}
+			}
+		}
+
+	}
+	return ""
+}
+
 // injectRoute is a helper function to inject BGP routes to VPP
 // TODO: multipath support
 func (w *BGPWatcher) injectRoute(path *bgpapi.Path) error {
+	w.log.Infof("injectRoute")
 	var dst net.IPNet
 	ipAddrPrefixNlri := &bgpapi.IPAddressPrefix{}
-	otherNodeIP := net.ParseIP(w.getNexthop(path))
+
+	fmt.Printf("injectRouteinjectRouteinjectRoute\n")
 	w.log.Infof("injectRoute New pathSrv6: %s", path)
+	otherNodeIP := net.ParseIP(w.getNexthop(path))
 	if otherNodeIP == nil {
 		return fmt.Errorf("Cannot determine path nexthop: %+v", path)
 	}
@@ -117,8 +150,17 @@ func (w *BGPWatcher) WatchBGPPath() error {
 				}
 				w.log.Infof("Got path update from %s as %d", path.SourceId, path.SourceAsn)
 				w.log.Infof("Got path update from %s ", path)
+				w.getSegList(path)
+				srnrli := &bgpapi.SRPolicyNLRI{}
+				if err := ptypes.UnmarshalAny(path.Nlri, srnrli); err == nil {
+					w.log.Infof("Got path update with SRv6BindingSID")
+
+				} else {
+					w.log.Infof("Got path update but no  SRv6BindingSID: %v", err)
+				}
 				if path.NeighborIp == "<nil>" { // Weird GoBGP API behaviour
-					w.log.Debugf("Ignoring internal path")
+					w.log.Infof("Ignoring internal path")
+					w.log.Infof("Ignoring internal path")
 					return
 				}
 				w.BarrierSync()

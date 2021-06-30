@@ -166,6 +166,7 @@ func (w *PrefixWatcher) updateOneBGPPath(path *bgpapi.Path) error {
 
 	pathFamily := path.GetFamily()
 	if pathFamily.Safi == bgpapi.Family_SAFI_SR_POLICY {
+		w.log.Infof("updateOneBGPPath SRv6 path: %s", path.String())
 		policySRv6Nlri := &bgpapi.SRPolicyNLRI{}
 		err_srv6Nlri := ptypes.UnmarshalAny(path.Nlri, policySRv6Nlri)
 		if err_srv6Nlri != nil {
